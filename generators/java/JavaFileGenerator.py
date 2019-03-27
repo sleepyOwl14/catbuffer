@@ -7,6 +7,8 @@ from .JavaEnumGenerator import JavaEnumGenerator
 from .JavaClassGenerator import JavaClassGenerator
 
 class JavaFileGenerator:
+    enum_class_list = {}
+    
     def __init__(self, schema, options):
         self.schema = schema
         self.current = None
@@ -45,18 +47,28 @@ class JavaFileGenerator:
             self.set_import()
             attribute_type = value['type']
 
-            if attribute_type == TypeDescriptorType.Byte.value:
+            if is_byte_type(attribute_type):
                 # Typeless environment, values will be directly assigned
                 pass
-            elif attribute_type == TypeDescriptorType.Enum.value:
-                new_enum = JavaEnumGenerator(type_descriptor, self.schema)
-                self.code += new_enum.generate(value)
-                yield self.code, type_descriptor
-            elif attribute_type == TypeDescriptorType.Struct.value:
+            elif is_enum_type(attribute_type):
+                JavaFileGenerator.enum_class_list[type_descriptor] = JavaEnumGenerator(type_descriptor, self.schema, value)
+                #self.code += new_enum.generate(value)
+                #yield self.code, type_descriptor
+                pass
+            elif is_struct_type(attribute_type):
                 if type_descriptor.endswith('Body'): # skip all the inline classes
                     continue
-                new_class = JavaClassGenerator(type_descriptor, self.schema, value['layout'])
+                new_class = JavaClassGenerator(type_descriptor, self.schema, value['layout'], JavaFileGenerator.enum_class_list)
                 self.code += new_class.generate(value)
-                yield self.code, JavaClassGenerator.get_generated_class_name(type_descriptor)
+                yield self.code, get_generated_class_name(type_descriptor)
+
+        # write all the enum last just in case there are 'dymanic values'
+        for type_descriptor, enum_class in JavaFileGenerator.enum_class_list.items():
+            self.code = []
+            self.prepend_copyright(self.options['copyright'])
+            self.set_package()
+            self.set_import()
+            self.code += enum_class.generate()
+            yield self.code, get_generated_class_name(type_descriptor)
 
         return

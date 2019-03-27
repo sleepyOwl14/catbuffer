@@ -6,11 +6,21 @@ class TypeDescriptorType(Enum):
     Struct = 'struct'
     Enum = 'enum'
 
+def is_struct_type(typename):
+    return typename == TypeDescriptorType.Struct.value
+
+def is_enum_type(typename):
+    return typename == TypeDescriptorType.Enum.value
+
+def is_byte_type(typename):
+    return typename == TypeDescriptorType.Byte.value
+
+def get_generated_class_name(typename):
+    return typename + "Builder"
 
 def is_builtin_type(typename, size):
     # byte up to long are passed as 'byte' with size set to proper value
-    return not isinstance(size, str) and TypeDescriptorType.Byte.value == typename and size <= 8
-
+    return not isinstance(size, str) and is_byte_type(typename) and size <= 8
 
 class AttributeKind(Enum):
     SIMPLE = 1
@@ -21,7 +31,7 @@ class AttributeKind(Enum):
 
 
 def get_attribute_size(schema, attribute):
-    if 'size' not in attribute and attribute['type'] != TypeDescriptorType.Byte.value and attribute['type'] != TypeDescriptorType.Enum.value:
+    if 'size' not in attribute and not is_byte_type(attribute['type']) and not is_enum_type(attribute['type']):
         attr = schema[attribute['type']]
         if 'size' in attr:
             return attr['size']
@@ -32,7 +42,7 @@ def get_attribute_size(schema, attribute):
 
 def get_attribute_kind(schema, attribute):
     attribute_type = attribute['type']
-    if attribute_type == TypeDescriptorType.Struct.value or attribute_type == TypeDescriptorType.Enum.value:
+    if is_struct_type(attribute_type) or is_enum_type(attribute_type):
         return AttributeKind.CUSTOM
     if 'size' not in attribute:
         type_descriptor = schema[attribute_type]
@@ -97,12 +107,25 @@ def get_read_method_name(size):
     return method_name
 
 
+def get_reverse_method_name_if_needed(size):
+    if isinstance(size, str) or size > 8 or size == 1:
+        method_name = '{0}'
+    else:
+        typesize_methodname = {2: 'Short.reverseBytes({0})', 
+                               4: 'Integer.reverseBytes({0})', 
+                               8: 'Long.reverseBytes({0})'}
+        method_name = typesize_methodname[size]
+    return method_name
+
+
 def get_write_method_name(size):
     if isinstance(size, str) or size > 8:
         method_name = 'write'
     else:
         typesize_methodname = {1: 'writeByte',
-                               2: 'writeShort', 4: 'writeInt', 8: 'writeLong'}
+                               2: 'writeShort', 
+                               4: 'writeInt', 
+                               8: 'writeLong'}
         method_name = typesize_methodname[size]
     return method_name
 
@@ -110,6 +133,9 @@ def get_write_method_name(size):
 def get_generated_type(schema, attribute):
     typename = attribute['type']
     attribute_kind = get_attribute_kind(schema, attribute)
+    if not is_byte_type(typename):
+        typename = get_generated_class_name(typename)
+        
     if attribute_kind == AttributeKind.SIMPLE:
         return get_builtin_type(get_attribute_size(schema, attribute))
     elif attribute_kind == AttributeKind.BUFFER:

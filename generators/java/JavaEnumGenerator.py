@@ -1,13 +1,16 @@
-import os
 from .Helpers import *
 from .JavaMethodGenerator import JavaMethodGenerator
 
 class JavaEnumGenerator:
-    def __init__(self, name, schema):
-        self.enum_name = name
+    def __init__(self, name, schema, attribute):
+        self.enum_name = get_generated_class_name(name)
         self.enum_output = ['public enum {0} {{'.format(self.enum_name)]
         self.schema = schema
         self.privates = []
+        self.attribute = attribute
+        self.enum_values = {}
+
+        self._add_enum_values(self.attribute)
 
     def _get_type(self, attribute):
         return get_builtin_type(attribute['size'])
@@ -18,13 +21,18 @@ class JavaEnumGenerator:
 
     def _add_enum_values(self, enum_attribute):
         enum_attribute_values = enum_attribute['values']
-        enum_type = self._get_type(enum_attribute)
-        num_items = len(enum_attribute_values)
-        for attribute in enum_attribute_values:
-            attribute_name = attribute['name']
-            line = '{0}(({1}){2})'.format(attribute_name.upper(), enum_type, attribute['value'])
-            line += ',' if attribute_name != enum_attribute_values[num_items - 1]['name'] else ';'
+        for current_attribute in enum_attribute_values:
+            self.add_enum_value(current_attribute['name'], current_attribute['value'])
+ 
+    def _write_enum_values(self):
+        enum_type = self._get_type(self.attribute)
+        enum_length = len(self.enum_values)
+        count = 1
+        for name, value in self.enum_values.items():
+            line = '{0}(({1}){2})'.format(name.upper(), enum_type, value)
+            line += ',' if count < enum_length else ';'
             self.enum_output += [indent(line)]
+            count += 1
         self.enum_output += ['']
 
     def _add_constructor(self, attribute):
@@ -39,6 +47,10 @@ class JavaEnumGenerator:
             'public', self.enum_name, 'loadFromBinary', ['DataInput stream'], 'throws Exception', True)
         load_from_binary_method.add_instructions(
             ['{0} val = stream.{1}()'.format(self._get_type(attribute), get_read_method_name(attribute['size']))])
+        size = get_attribute_size(self.schema, attribute)
+        reverse_byte_method = get_reverse_method_name_if_needed(size).format('val')
+        load_from_binary_method.add_instructions(
+            ['val = {0}'.format(reverse_byte_method)])
         load_from_binary_method.add_instructions(
             ['for ({0} current : {0}.values()) {{'.format(self.enum_name)], False)
         load_from_binary_method.add_instructions(
@@ -58,8 +70,10 @@ class JavaEnumGenerator:
             ['ByteArrayOutputStream bos = new ByteArrayOutputStream()'])
         serialize_method.add_instructions(
             ['DataOutputStream stream = new DataOutputStream(bos)'])
+        size = get_attribute_size(self.schema, attribute)
+        reverse_byte_method = get_reverse_method_name_if_needed(size).format('this.value')
         serialize_method.add_instructions([
-            'stream.{0}(this.value)'.format(get_write_method_name(attribute['size']))
+            'stream.{0}({1})'.format(get_write_method_name(size), reverse_byte_method)
         ])
         serialize_method.add_instructions(['stream.close()'])
         serialize_method.add_instructions(['return bos.toByteArray()'])
@@ -69,10 +83,13 @@ class JavaEnumGenerator:
         self.enum_output += [indent(line)
                              for line in method.get_method()] + ['']
 
-    def generate(self, attribute):
-        self._add_enum_values(attribute)
-        self._add_private_declaration(attribute)
-        self._add_constructor(attribute)
-        self._add_load_from_binary_method(attribute)
-        self._add_serialize_method(attribute)
+    def add_enum_value(self, name, value):
+        self.enum_values[name] = value
+
+    def generate(self):
+        self._write_enum_values()
+        self._add_private_declaration(self.attribute)
+        self._add_constructor(self.attribute)
+        self._add_load_from_binary_method(self.attribute)
+        self._add_serialize_method(self.attribute)
         return self.enum_output + ['}']

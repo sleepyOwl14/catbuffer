@@ -6,7 +6,7 @@ from .JavaMethodGenerator import JavaMethodGenerator
 class JavaClassGenerator:
     @staticmethod
     def get_generated_class_name(name):
-        return '{}'.format(name)
+        return get_generated_class_name(name)
 
     def _get_generated_getter_name(self, attribute):
         return 'get{}'.format(attribute.capitalize())
@@ -14,7 +14,7 @@ class JavaClassGenerator:
     def _get_generated_setter_name(self, attribute_name):
         return 'set{}'.format(attribute_name.capitalize())
 
-    def __init__(self, name, schema, class_schema):
+    def __init__(self, name, schema, class_schema, enum_list):
         self.class_name = JavaClassGenerator.get_generated_class_name(name)
         self.class_output = ['public class {0} {{'.format(self.class_name)]
         self.load_from_binary_method = None
@@ -22,6 +22,7 @@ class JavaClassGenerator:
         self.schema = schema
         self.class_schema = class_schema
         self.privates = []
+        self.enum_list = enum_list
 
     def _set_declarations(self):
         self.class_output += [indent(line) for line in self.privates] + ['']
@@ -49,7 +50,7 @@ class JavaClassGenerator:
             condition_type_attribute = get_attribute_where_property_equal(self.schema, self.class_schema, 'name', attribute['condition'])
             condition_type_prefix = ''
             if condition_type_attribute is not None:
-                condition_type_prefix = '{0}.'.format(condition_type_attribute['type'])
+                condition_type_prefix = '{0}.'.format(get_generated_class_name(condition_type_attribute['type']))
 
             method_writer.add_instructions(['if ({0} != {1}{2})'.format(
                 attribute['condition'], condition_type_prefix, attribute['condition_value'].upper())], False)
@@ -133,6 +134,10 @@ class JavaClassGenerator:
                     self._recurse_inlines(
                         generate_attribute_method, self.schema[attribute['type']]['layout'])
                 elif attribute['disposition'] == TypeDescriptorDisposition.Const.value:
+                    # add dymanic enum if present in this class
+                    enum_name = attribute['type']
+                    if enum_name in self.enum_list:
+                        self.enum_list[enum_name].add_enum_value(self.class_name, attribute['value'])
                     pass
             else:
                 generate_attribute_method(
@@ -143,7 +148,7 @@ class JavaClassGenerator:
             condition_type_attribute = get_attribute_where_property_equal(self.schema, class_schema, 'name', attribute['condition'])
             condition_type_prefix = ''
             if condition_type_attribute is not None:
-                condition_type_prefix = '{0}.'.format(condition_type_attribute['type'])
+                condition_type_prefix = '{0}.'.format(get_generated_class_name(condition_type_attribute['type']))
 
             method_writer.add_instructions(['if ({0}{1}() == {2}{3})'.format(
                 obj_prefix, self._get_generated_getter_name(attribute['condition']), condition_type_prefix, attribute['condition_value'].upper())], False)
@@ -152,8 +157,11 @@ class JavaClassGenerator:
 
     def _load_from_binary_simple(self, attribute, class_attributes):
         indent_required = self._add_attribute_condition_if_needed(attribute, class_attributes, self.load_from_binary_method, 'obj.')
-        line = 'obj.{0}(stream.{1}())'.format(self._get_generated_setter_name(
-                attribute['name']), get_read_method_name(get_attribute_size(self.schema, attribute)))
+        size = get_attribute_size(self.schema, attribute)
+        read_method_name = 'stream.{0}()'.format(get_read_method_name(size))
+        reverse_byte_method = get_reverse_method_name_if_needed(size).format(read_method_name)
+        line = 'obj.{0}({1})'.format(self._get_generated_setter_name(
+                attribute['name']), reverse_byte_method)
         self.load_from_binary_method.add_instructions([indent(line) if indent_required else line])
 
     def _load_from_binary_buffer(self, attribute, clas_attributes):
@@ -171,16 +179,16 @@ class JavaClassGenerator:
         attribute_sizename = attribute['size']
         attribute_name = attribute['name']
         self.load_from_binary_method.add_instructions(['java.util.ArrayList<{1}> {0} = new java.util.ArrayList<{1}>({2})'.format(
-            attribute_name, attribute_typename, attribute_sizename)])
+            attribute_name, get_generated_class_name(attribute_typename), attribute_sizename)])
         self.load_from_binary_method.add_instructions([
             'for (int i = 0; i < {0}; i++) {{'.format(attribute_sizename)], False)
 
-        if attribute_typename == TypeDescriptorType.Byte.value:
+        if is_byte_type(attribute_typename):
             self.load_from_binary_method.add_instructions([indent(
                 '{0}.add(stream.{1}())'.format(attribute_name, get_read_method_name(1)))])
         else:
             self.load_from_binary_method.add_instructions([indent(
-                '{0}.add({1}.loadFromBinary(stream))'.format(attribute_name, attribute_typename))])
+                '{0}.add({1}.loadFromBinary(stream))'.format(attribute_name, get_generated_class_name(attribute_typename)))])
         self.load_from_binary_method.add_instructions(['}'], False)
         self.load_from_binary_method.add_instructions(['obj.{0}({1})'.format(
             self._get_generated_setter_name(attribute['name']), attribute_name)])
@@ -188,15 +196,18 @@ class JavaClassGenerator:
     def _load_from_binary_custom(self, attribute, class_attributes):
         self.load_from_binary_method.add_instructions([
             'obj.{0}({1}.loadFromBinary(stream))'.format(
-                self._get_generated_setter_name(attribute['name']), attribute['type'])
+                self._get_generated_setter_name(attribute['name']), get_generated_class_name(attribute['type']))
         ])
 
     def _generate_load_from_binary_attributes(self, attribute, sizeof_attribute_name, class_attributes):
         attribute_name = attribute['name']
         if sizeof_attribute_name is not None:
+            read_method_name = 'stream.{0}()'.format(get_read_method_name(attribute['size']))
+            size = get_attribute_size(self.schema, attribute)
+            reverse_byte_method = get_reverse_method_name_if_needed(size).format(read_method_name)
             self.load_from_binary_method.add_instructions([
-                '{0} {1} = stream.{2}()'.format(get_generated_type(self.schema, attribute),
-                                                attribute['name'], get_read_method_name(attribute['size']))
+                '{0} {1} = {2}'.format(get_generated_type(self.schema, attribute),
+                                                attribute_name, reverse_byte_method)
             ])
         else:
             load_attribute = {
@@ -221,8 +232,9 @@ class JavaClassGenerator:
 
     def _serialize_attribute_simple(self, attribute, class_attributes):
         indent_required = self._add_attribute_condition_if_needed(attribute, class_attributes, self.serialize_method, 'this.')
-        line = 'stream.{0}(this.{1}())'.format(get_write_method_name(get_attribute_size(self.schema, attribute)),
-                                           self._get_generated_getter_name(attribute['name']))
+        size = get_attribute_size(self.schema, attribute)
+        reverse_byte_method = get_reverse_method_name_if_needed(size).format('this.' + self._get_generated_getter_name(attribute['name'] + '()'))
+        line = 'stream.{0}({1})'.format(get_write_method_name(size), reverse_byte_method)
         self.serialize_method.add_instructions([indent(line) if indent_required else line])
 
     def _serialize_attribute_buffer(self, attribute, clas_attributes):
@@ -241,7 +253,7 @@ class JavaClassGenerator:
             'for (int i = 0; i < this.{0}.size(); i++) {{'.format(attribute_name)
         ], False)
 
-        if attribute_typename == TypeDescriptorType.Byte.value:
+        if is_byte_type(attribute_typename):
             self.serialize_method.add_instructions([indent(
                 'stream.{0}(this.{1}.get(i))'.format(get_write_method_name(1), attribute_name))])
         else:
@@ -263,12 +275,12 @@ class JavaClassGenerator:
     def _generate_serialize_attributes(self, attribute, sizeof_attribute_name, class_attributes):
         attribute_name = attribute['name']
         if sizeof_attribute_name is not None:
-            line = 'stream.{0}(this.{1}'.format(
-                    get_write_method_name(get_attribute_size(self.schema, attribute)), sizeof_attribute_name)
-            if attribute_name.endswith('Count'):
-                line += '.size())'
-            else:
-                line += '.array().length)'
+            size = get_attribute_size(self.schema, attribute)
+            size_extension = '.size()' if attribute_name.endswith('Count') else '.array().length'
+            full_property_name = '({0}){1}'.format(get_builtin_type(size), 'this.' + sizeof_attribute_name + size_extension)
+            reverse_byte_method = get_reverse_method_name_if_needed(size).format(full_property_name)
+            line = 'stream.{0}({1})'.format(
+                    get_write_method_name(size), reverse_byte_method)
             self.serialize_method.add_instructions([line])
         else:
             serialize_attribute = {
