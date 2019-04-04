@@ -27,6 +27,7 @@ def add_simple_setter(attribute, new_setter):
     new_setter.add_instructions(
         ['this.{0} = {0}'.format(attribute['name'])])
 
+
 def add_array_setter(attribute, new_setter):
     new_setter.add_instructions(
         ['this.{0} = {0}'.format(attribute['name'])])

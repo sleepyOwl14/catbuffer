@@ -150,9 +150,9 @@ def get_generated_type(schema, attribute):
 
     if attribute_kind == AttributeKind.SIMPLE:
         return get_builtin_type(get_attribute_size(schema, attribute))
-    elif attribute_kind == AttributeKind.BUFFER:
+    if attribute_kind == AttributeKind.BUFFER:
         return 'ByteBuffer'
-    elif attribute_kind == AttributeKind.ARRAY:
+    if attribute_kind == AttributeKind.ARRAY:
         return 'java.util.ArrayList<{0}>'.format(typename)
 
     return typename

@@ -2,8 +2,10 @@ from .Helpers import get_generated_class_name, get_builtin_type, indent, get_att
 from .Helpers import get_read_method_name, get_reverse_method_name, get_write_method_name
 from .JavaMethodGenerator import JavaMethodGenerator
 
+
 def get_type(attribute):
     return get_builtin_type(attribute['size'])
+
 
 class JavaEnumGenerator():
     """Java enum generator"""
@@ -17,7 +19,6 @@ class JavaEnumGenerator():
         self.enum_values = {}
 
         self._add_enum_values(self.attribute)
-
 
     def _add_private_declaration(self, attribute):
         var_type = get_type(attribute)

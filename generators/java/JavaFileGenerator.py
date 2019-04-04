@@ -39,7 +39,6 @@ class JavaFileGenerator:
         self.code += ['package catapult.builders;'] + ['']
 
     def generate(self):
-
         for type_descriptor, value in self.schema.items():
             self.code = []
             self.prepend_copyright(self.options['copyright'])
@@ -71,5 +70,3 @@ class JavaFileGenerator:
             self.set_import()
             self.code += enum_class.generate()
             yield self.code, get_generated_class_name(type_descriptor)
-
-        return
