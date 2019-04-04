@@ -1,8 +1,11 @@
-import os
 from .Helpers import indent
 
+
 class JavaMethodGenerator:
-    def __init__(self, scope, return_type, name, params, exception_list = '', static = False):
+    """Java method generator"""
+
+    def __init__(self, scope, return_type, name, params, exception_list='', static=False):
+        # pylint: disable-msg=too-many-arguments
         self.name = name
         if static:
             self.method_output = ['{0} static {1} {2}({3}) {4} {{'.format(

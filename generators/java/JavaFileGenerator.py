@@ -1,14 +1,14 @@
 import os
-from enum import Enum
 from generators.Descriptor import Descriptor
-from .Helpers import *
-from .JavaMethodGenerator import JavaMethodGenerator
+from .Helpers import is_byte_type, is_enum_type, is_struct_type, get_generated_class_name
 from .JavaEnumGenerator import JavaEnumGenerator
 from .JavaClassGenerator import JavaClassGenerator
 
+
 class JavaFileGenerator:
+    """Java file generator"""
     enum_class_list = {}
-    
+
     def __init__(self, schema, options):
         self.schema = schema
         self.current = None
@@ -51,14 +51,15 @@ class JavaFileGenerator:
                 # Typeless environment, values will be directly assigned
                 pass
             elif is_enum_type(attribute_type):
-                JavaFileGenerator.enum_class_list[type_descriptor] = JavaEnumGenerator(type_descriptor, self.schema, value)
-                #self.code += new_enum.generate(value)
-                #yield self.code, type_descriptor
-                pass
+                JavaFileGenerator.enum_class_list[type_descriptor] = JavaEnumGenerator(
+                    type_descriptor, self.schema, value)
             elif is_struct_type(attribute_type):
-                if type_descriptor.endswith('Body'): # skip all the inline classes
+                # skip all the inline classes
+                if type_descriptor.endswith('Body'):
                     continue
-                new_class = JavaClassGenerator(type_descriptor, self.schema, value['layout'], JavaFileGenerator.enum_class_list)
+                new_class = JavaClassGenerator(
+                    type_descriptor, self.schema, value['layout'],
+                    JavaFileGenerator.enum_class_list)
                 self.code += new_class.generate(value)
                 yield self.code, get_generated_class_name(type_descriptor)
 
