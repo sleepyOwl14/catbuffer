@@ -93,10 +93,21 @@ class JavaScriptGenerator:
         self.serialize_method = None
         self.consumer_class = None
         self.exports = None
+        self.options = options
+        self.current = None
+        self.transaction_name = None
 
     def __iter__(self):
+        self.current = iter(self.schema)
         self.generated = False
         return self
+
+    def _get_transaction_name(self):
+
+        name = next(self.current)
+        while name == 'Transaction' or name.startswith('Embedded') or not name.endswith('Transaction'):
+            name = next(self.current)
+        return name
 
     def __next__(self):
         if self.generated:
@@ -104,7 +115,8 @@ class JavaScriptGenerator:
 
         code = self.generate()
         self.generated = True
-        return Descriptor('catbuffer_generated_output.js', code)
+        self.transaction_name = self._get_transaction_name()
+        return Descriptor('{}.js'.format(self.transaction_name), code)
 
     def _get_type_size(self, attribute):
         if attribute['type'] != TypeDescriptorType.Byte.value and attribute['type'] != TypeDescriptorType.Enum.value:
