@@ -1,6 +1,6 @@
 from enum import Enum
 from generators.Descriptor import Descriptor
-
+import os
 
 class TypeDescriptorType(Enum):
     Byte = 'byte'
@@ -96,6 +96,8 @@ class JavaScriptGenerator:
         self.options = options
         self.current = None
         self.transaction_name = None
+        self.copyright_code = []
+        self.prepend_copyright(options['copyright'])
 
     def __iter__(self):
         self.current = iter(self.schema)
@@ -103,7 +105,6 @@ class JavaScriptGenerator:
         return self
 
     def _get_transaction_name(self):
-
         name = next(self.current)
         while name == 'Transaction' or name.startswith('Embedded') or not name.endswith('Transaction'):
             name = next(self.current)
@@ -113,10 +114,15 @@ class JavaScriptGenerator:
         if self.generated:
             raise StopIteration
 
-        code = self.generate()
+        code = self.copyright_code + self.generate()
         self.generated = True
         self.transaction_name = self._get_transaction_name()
         return Descriptor('{}.js'.format(self.transaction_name), code)
+
+    def prepend_copyright(self, copyright_file):
+        if os.path.isfile(copyright_file):
+            with open(copyright_file) as header:
+                self.copyright_code = [line.strip() for line in header]
 
     def _get_type_size(self, attribute):
         if attribute['type'] != TypeDescriptorType.Byte.value and attribute['type'] != TypeDescriptorType.Enum.value:

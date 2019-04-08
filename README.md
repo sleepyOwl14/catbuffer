@@ -23,7 +23,7 @@ python main.py [OPTIONS]
 | -o, --output TEXT    | output directory                                        | _generated    |
 | -i, --include TEXT   | schema root directory                                   | ./schemas     |
 | -g, --generator TEXT | generator to use to produce output files                |               |
-| -c, --copyright TEXT | file containing copyright data to use with output files | ../HEADER.inc |
+| -c, --copyright TEXT | file containing copyright data to use with output files | ./HEADER.inc |
 
 
 ## Examples

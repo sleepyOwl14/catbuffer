@@ -53,7 +53,7 @@ def generate():
 
     generators_list = list(AVAILABLE_GENERATORS.keys())
     parser.add_argument('-g', '--generator', help='generator to use to produce output files', choices=generators_list)
-    parser.add_argument('-c', '--copyright', help='file containing copyright data to use with output files', default='../HEADER.inc')
+    parser.add_argument('-c', '--copyright', help='file containing copyright data to use with output files', default='./HEADER.inc')
     args = parser.parse_args()
 
     file_parser = MultiFileParser()
