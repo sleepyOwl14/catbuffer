@@ -150,6 +150,24 @@ def _generate_export_as_default_class(class_name):
     return ['export default {};'.format(class_name)]
 
 
+def _generate_calculation_size_method(base_size, class_size_data, list_of_appending_data):
+    additional_size = ''
+
+    for attribute_name in class_size_data:
+        additional_size += ' + ( this.{}.length * {} )'.format(attribute_name, class_size_data[attribute_name])
+
+    for attribute_name in list_of_appending_data:
+        additional_size += ' + this.{}.length'.format(attribute_name)
+
+    size_calculate_code_method = JavaScriptMethodGenerator('calculateSize', [])
+    size_calculate_code_method.add_instructions(
+        ['size = {baseSize}{additionalCalculation}'.format(baseSize=base_size, additionalCalculation=additional_size)]
+    )
+    size_calculate_code_method.add_instructions(['this.size = size'])
+
+    return size_calculate_code_method
+
+
 class JavaScriptMethodGenerator:
     def __init__(self, name, params, static=False):
         self.name = name
@@ -225,9 +243,16 @@ class JavaScriptGenerator:
             'load_from_binary': None,
             'serialize': None,
         }
+        self.imports_exports_meta = {
+            'imports': [],
+            'exports': [],
+        }
+        self.size_meta = {
+            'base_size': 0,
+            'attribute_includes': [],
+            'struct_obj_size_data': {}
+        }
         self.new_class = None
-        self.exports = None
-        self.options = options
         self.schema_items_iterator = None
         self.copyright_code = []
         self.prepend_copyright(options['copyright'])
@@ -273,6 +298,21 @@ class JavaScriptGenerator:
         if attribute['type'] != TypeDescriptorType.Byte.value and attribute['type'] != TypeDescriptorType.Enum.value:
             return self.schema[attribute['type']]['size']
         return attribute['size']
+
+    def _get_entity_size(self, struct_layout):
+        size = 0
+        for layout in struct_layout:
+            if 'name' in layout:
+                if 'size' in layout:
+                    if isinstance(layout['size'], int):
+                        size += layout['size']
+                else:
+                    size += self.schema[layout['type']]['size']
+
+            elif 'disposition' in layout and layout['disposition'] == TypeDescriptorDisposition.Inline.value:
+                size += self._get_entity_size(self.schema[layout['type']]['layout'])
+
+        return size
 
     def _recurse_inlines(self, generate_attribute_method, attributes):
         for attribute in attributes:
@@ -416,6 +456,7 @@ class JavaScriptGenerator:
     def _generate_serialize_method(self, attributes):
         self.methods['serialize'] = JavaScriptMethodGenerator('serialize', [])
         self.methods['serialize'].add_instructions(['var newArray = new Uint8Array()'])
+        self.methods['serialize'].add_instructions(['this.calculateSize()'])
         self._recurse_inlines(self._generate_serialize_attributes, attributes)
         self.methods['serialize'].add_instructions(['return newArray'])
         self.new_class.add_method(self.methods['serialize'])
@@ -424,19 +465,67 @@ class JavaScriptGenerator:
         if sizeof_attribute_name is None:
             self.new_class.add_getter_setter(attribute['name'])
 
+    def _generate_size_calculate_method(self, attribute, sizeof_attribute_name):
+        if sizeof_attribute_name is not None:
+            # size of bytes allocated for attribute size
+            self.size_meta['base_size'] += attribute['size']
+        else:
+            if attribute['type'] == TypeDescriptorType.Byte.value:
+                if isinstance(attribute['size'], int):
+                    self.size_meta['base_size'] += self._get_type_size(attribute)
+                else:
+                    self.size_meta['attribute_includes'].append(attribute['name'])
+
+            # Struct object
+            else:
+                # Required to check if typedef or struct definition (depends if type of typedescriptor is Struct or Byte)
+                attribute_typedescriptor = self.schema[attribute['type']]
+
+                # Array of objects
+                if 'size' in attribute:
+                    # No need to check if attribute['size'] is int (fixed) or a variable reference,
+                    # because we iterate with a for util in both cases
+
+                    if attribute_typedescriptor['type'] == TypeDescriptorType.Struct.value:
+                        self.size_meta['struct_obj_size_data'][attribute['name']] = self._get_entity_size(
+                            self.schema[attribute['type']]['layout'])
+
+                    elif attribute_typedescriptor['type'] == TypeDescriptorType.Enum.value:
+                        self.size_meta['struct_obj_size_data'][attribute['name']] = self._get_type_size(attribute_typedescriptor)
+
+                # Single object
+                else:
+
+                    if attribute_typedescriptor['type'] == TypeDescriptorType.Struct.value:
+                        self.size_meta['base_size'] += self._get_entity_size(self.schema[attribute['type']]['layout'])
+
+                    elif (
+                            attribute_typedescriptor['type'] == TypeDescriptorType.Byte.value
+                            or attribute_typedescriptor['type'] == TypeDescriptorType.Enum.value
+                    ):
+                        self.size_meta['base_size'] += self._get_type_size(attribute_typedescriptor)
+
     def _generate_schema(self, type_descriptor, schema):
+        self.size_meta['base_size'] = 0
+        self.size_meta['struct_obj_size_data'] = {}
+        self.size_meta['attribute_includes'] = []
         self.new_class = JavaScriptClassGenerator(type_descriptor)
-        self.exports.append(self.new_class.class_name)
+        self.imports_exports_meta['exports'].append(self.new_class.class_name)
         self._recurse_inlines(self._generate_attributes, schema['layout'])
+        self._recurse_inlines(self._generate_size_calculate_method, schema['layout'])
+        self.new_class.add_method(_generate_calculation_size_method(
+            self.size_meta['base_size'], self.size_meta['struct_obj_size_data'], self.size_meta['attribute_includes']))
+
         self._generate_load_from_binary_method(schema['layout'])
         self._generate_serialize_method(schema['layout'])
         return self.new_class.get_class()
 
     def _generate_module_exports(self):
-        return ['module.exports = {'] + [indent(export + ',') for export in self.exports] + ['};']
+        exports = self.imports_exports_meta['exports']
+        return ['module.exports = {'] + [indent(export + ',') for export in exports] + ['};']
 
     def generate(self):
-        self.exports = []
+        self.imports_exports_meta['exports'] = []
 
         new_file = _prefix_generation_message()
 
