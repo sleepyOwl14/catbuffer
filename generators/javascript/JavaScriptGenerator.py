@@ -150,7 +150,7 @@ def _generate_export_as_default_class(class_name):
     return ['export default {};'.format(class_name)]
 
 
-def _generate_calculation_size_method(base_size, class_size_data, list_of_appending_data):
+def _generate_calculation_size_method(base_size, class_size_data, list_of_appending_data, bytes_size_length):
     additional_size = ''
 
     for attribute_name in class_size_data:
@@ -163,7 +163,7 @@ def _generate_calculation_size_method(base_size, class_size_data, list_of_append
     size_calculate_code_method.add_instructions(
         ['size = {baseSize}{additionalCalculation}'.format(baseSize=base_size, additionalCalculation=additional_size)]
     )
-    size_calculate_code_method.add_instructions(['this.size = size'])
+    size_calculate_code_method.add_instructions(['this.size = uint_to_buffer(size, {})'.format(bytes_size_length)])
 
     return size_calculate_code_method
 
@@ -324,6 +324,26 @@ class JavaScriptGenerator:
             else:
                 generate_attribute_method(attribute, _get_attribute_name_if_sizeof(attribute['name'], attributes))
 
+    def _recurse_inlines_check_size_exist(self, attributes):
+        exist = False
+        for attribute in attributes:
+            if attribute['type'] == 'SizePrefixedEntity':
+                exist = True
+                break
+
+            elif 'disposition' in attribute:
+                if attribute['disposition'] == TypeDescriptorDisposition.Inline.value:
+                    exist = self._recurse_inlines_check_size_exist(self.schema[attribute['type']]['layout'])
+                    if exist:
+                        break
+                elif attribute['disposition'] == TypeDescriptorDisposition.Const.value:
+                    pass
+
+            else:
+                pass
+
+        return exist
+
     def _generate_load_from_binary_attributes(self, attribute, sizeof_attribute_name):
         if sizeof_attribute_name is not None:
             self.methods['load_from_binary'].add_instructions([
@@ -456,7 +476,8 @@ class JavaScriptGenerator:
     def _generate_serialize_method(self, attributes):
         self.methods['serialize'] = JavaScriptMethodGenerator('serialize', [])
         self.methods['serialize'].add_instructions(['var newArray = new Uint8Array()'])
-        self.methods['serialize'].add_instructions(['this.calculateSize()'])
+        if self._recurse_inlines_check_size_exist(attributes):
+            self.methods['serialize'].add_instructions(['this.calculateSize()'])
         self._recurse_inlines(self._generate_serialize_attributes, attributes)
         self.methods['serialize'].add_instructions(['return newArray'])
         self.new_class.add_method(self.methods['serialize'])
@@ -512,9 +533,14 @@ class JavaScriptGenerator:
         self.new_class = JavaScriptClassGenerator(type_descriptor)
         self.imports_exports_meta['exports'].append(self.new_class.class_name)
         self._recurse_inlines(self._generate_attributes, schema['layout'])
-        self._recurse_inlines(self._generate_size_calculate_method, schema['layout'])
-        self.new_class.add_method(_generate_calculation_size_method(
-            self.size_meta['base_size'], self.size_meta['struct_obj_size_data'], self.size_meta['attribute_includes']))
+
+        if self._recurse_inlines_check_size_exist(schema['layout']):
+
+            self._recurse_inlines(self._generate_size_calculate_method, schema['layout'])
+
+            self.new_class.add_method(_generate_calculation_size_method(
+                self.size_meta['base_size'], self.size_meta['struct_obj_size_data'],
+                self.size_meta['attribute_includes'], self.schema['SizePrefixedEntity']['layout'][0]['size']))
 
         self._generate_load_from_binary_method(schema['layout'])
         self._generate_serialize_method(schema['layout'])
