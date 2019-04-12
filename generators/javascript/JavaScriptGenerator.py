@@ -161,7 +161,7 @@ def _generate_calculation_size_method(base_size, class_size_data, list_of_append
 
     size_calculate_code_method = JavaScriptMethodGenerator('calculateSize', [])
     size_calculate_code_method.add_instructions(
-        ['size = {baseSize}{additionalCalculation}'.format(baseSize=base_size, additionalCalculation=additional_size)]
+        ['var size = {baseSize}{additionalCalculation}'.format(baseSize=base_size, additionalCalculation=additional_size)]
     )
     size_calculate_code_method.add_instructions(['this.size = uint_to_buffer(size, {})'.format(bytes_size_length)])
 
