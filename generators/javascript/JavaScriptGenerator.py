@@ -23,6 +23,7 @@ def _get_attribute_name_if_sizeof(attribute_name, attributes):
             return attribute['name']
     return None
 
+
 def _generate_calculation_size_method(base_size, class_size_data, list_of_appending_data, bytes_size_length):
     additional_size = ''
 
@@ -39,6 +40,7 @@ def _generate_calculation_size_method(base_size, class_size_data, list_of_append
     size_calculate_code_method.add_instructions(['this.size = uint_to_buffer(size, {})'.format(bytes_size_length)])
 
     return size_calculate_code_method
+
 
 class JavaScriptMethodGenerator:
     def __init__(self, name, params, static=False):
